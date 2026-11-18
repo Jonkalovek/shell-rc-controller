@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Shell Motorsports Pro Controller + Obsługa Pada Xbox</title>
+    <!-- Szyfrowanie pakietów BLE AES-128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.2.0/crypto-js.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #090b10;
+            --bg-card: #131722;
+            --bg-btn: #1d2333;
+            --bg-btn-hover: #293247;
+            --border-color: #273147;
+            --accent-red: #e11d48;
+            --accent-red-glow: rgba(225, 29, 72, 0.45);
+            --accent-yellow: #f59e0b;
+            --accent-yellow-glow: rgba(245, 158, 11, 0.45);
+            --accent-green: #22c55e;
+            --accent-green-glow: rgba(34, 197, 94, 0.45);
+            --accent-blue: #3b82f6;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            background: var(--bg-primary);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 14px 10px 30px;
+            overflow-x: hidden;
+        }
+
+        header {
+            width: 100%;
+            max-width: 650px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        .brand-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #dc2626, #b91c1c);
+            color: #fff;
+            font-size: 0.72rem;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            padding: 4px 12px;
+            border-radius: 999px;
+            margin-bottom: 4px;
+        }
+
+        h1 {
+            font-size: 1.45rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            background: linear-gradient(to right, #ffffff, #cbd5e1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        /* Pasek statusu połączenia i bateria */
+        .status-bar {
+            width: 100%;
+            max-width: 650px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            padding: 10px 14px;
+            border-radius: 14px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .conn-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ef4444;
+            box-shadow: 0 0 10px #ef4444;
+            transition: all 0.3s;
+        }
+
+        .status-online .status-dot {
+            background: var(--accent-green);
+            box-shadow: 0 0 12px var(--accent-green);
+        }
+
+        .status-offline .status-dot {
+            background: #ef4444;
+            box-shadow: 0 0 10px #ef4444;
+        }
+
+        #connect {
+            padding: 9px 18px;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.84rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+        }
+
+        #connect:hover { filter: brightness(1.1); }
+        #connect.connected {
+            background: linear-gradient(135deg, #475569, #334155);
+            box-shadow: none;
+        }
+
+        #batteryContainer {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+
+        #batteryIcon {
+            position: relative;
+            width: 72px;
+            height: 24px;
+            border: 2px solid #64748b;
+            border-radius: 5px;
+            overflow: hidden;
+            background: #0f172a;
+        }
+
+        #batteryFill {
+            position: absolute;
+            top: 0; left: 0; bottom: 0;
+            width: 0%;
+            background: var(--accent-green);
+            transition: width 0.3s ease, background 0.3s ease;
+        }
+
+        #batteryDisplay {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: #fff;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+            z-index: 2;
+        }
+
+        #batteryNub {
+            width: 3px;
+            height: 10px;
+            background: #64748b;
+            border-radius: 0 3px 3px 0;
+        }
+
+        /* ============================================================== */
+        /* KARTA STEROWANIA PADEM (XBOX ONE / SERIES / PS)                */
+        /* ============================================================== */
+        .gamepad-card {
+            width: 100%;
+            max-width: 650px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .gamepad-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+        }
+
+        .gamepad-title {
+            font-size: 0.92rem;
+            font-weight: 800;
+            color: #f1f5f9;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #gamepadStatus {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.76rem;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 999px;
+            background: #0f172a;
+            border: 1px solid #334155;
+        }
+
+        .pad-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #94a3b8;
+        }
+
+        .pad-status-online {
+            border-color: #22c55e !important;
+            color: #86efac;
+        }
+
+        .pad-status-online .pad-dot {
+            background: #22c55e;
+            box-shadow: 0 0 8px #22c55e;
+        }
+
+        .pad-status-offline {
+            color: #94a3b8;
+        }
+
+        /* Siatka Keybinds Pada */
+        .pad-keybinds-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 8px;
+        }
+
+        .pad-bind-item {
+            background: var(--bg-btn);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 8px 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: all 0.12s ease;
+        }
+
+        .pad-bind-item.pad-btn-active {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            border-color: #60a5fa;
+            color: #fff;
+            box-shadow: 0 0 12px rgba(37, 99, 235, 0.6);
+            transform: scale(1.02);
+        }
+
+        .pad-btn-badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 38px;
+            height: 26px;
+            padding: 0 6px;
+            background: #0a0e17;
+            border: 1px solid #3b82f6;
+            color: #60a5fa;
+            font-size: 0.72rem;
+            font-weight: 800;
+            border-radius: 6px;
+            font-family: monospace;
+            text-align: center;
+        }
+
+        .pad-btn-badge.trigger-badge {
+            border-color: #e11d48;
+            color: #f43f5e;
+        }
+
+        .pad-btn-badge.bumper-badge {
+            border-color: #f59e0b;
+            color: #fbbf24;
+        }
+
+        .pad-btn-badge.action-badge {
+            border-color: #22c55e;
+            color: #4ade80;
+        }
+
+        .pad-bind-desc {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+
+        .pad-bind-desc strong {
+            font-size: 0.76rem;
+            color: #f1f5f9;
+        }
+
+        .pad-bind-desc span {
+            font-size: 0.68rem;
+            color: var(--text-muted);
+        }
+
+        .pad-bind-item.pad-btn-active .pad-bind-desc span {
+            color: #e2e8f0;
+        }
+
+        /* Pasek Świateł & Bezpieczeństwa */
+        .controls-toolbar {
+            width: 100%;
+            max-width: 650px;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .tool-btn {
+            padding: 10px 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .tool-btn:hover:not(.disabled) {
+            background: var(--bg-btn-hover);
+            color: #fff;
+        }
+
+        .tool-btn.light-active {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            border-color: #fbbf24;
+            color: #fff;
+            box-shadow: 0 0 16px var(--accent-yellow-glow);
+        }
+
+        .tool-btn.strobe-active {
+            background: linear-gradient(135deg, #ef4444, #b91c1c);
+            border-color: #f87171;
+            color: #fff;
+            box-shadow: 0 0 16px var(--accent-red-glow);
+            animation: pulse-strobe 0.8s infinite alternate;
+        }
+
+        @keyframes pulse-strobe {
+            from { opacity: 0.85; }
+            to { opacity: 1; filter: brightness(1.2); }
+        }
+
+        /* Panel Mocy Silników & Biegów */
+        .power-card {
+            width: 100%;
+            max-width: 650px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 14px 18px;
+            margin-bottom: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+        }
+
+        .power-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .power-title {
+            font-size: 0.88rem;
+            font-weight: 800;
+            color: #f1f5f9;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #gearBadge {
+            background: #0f172a;
+            border: 1px solid #3b82f6;
+            color: #60a5fa;
+            font-size: 0.74rem;
+            font-weight: 800;
+            padding: 3px 8px;
+            border-radius: 6px;
+        }
+
+        .power-gauge {
+            width: 100%;
+            height: 8px;
+            background: #0f172a;
+            border-radius: 999px;
+            overflow: hidden;
+            margin-bottom: 12px;
+            border: 1px solid #1e293b;
+        }
+
+        #powerGaugeBar {
+            height: 100%;
+            width: 85%;
+            background: linear-gradient(to right, #3b82f6 0%, #22c55e 60%, #e11d48 100%);
+            border-radius: 999px;
+            transition: width 0.15s ease;
+        }
+
+        .gears-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+
+        .gear-btn {
+            padding: 8px 4px;
+            background: var(--bg-btn);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            color: #cbd5e1;
+            font-size: 0.72rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s;
+            text-align: center;
+        }
+
+        .gear-btn:hover:not(.disabled) { background: var(--bg-btn-hover); }
+        .gear-btn.active-gear {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            border-color: #60a5fa;
+            color: #fff;
+            box-shadow: 0 0 10px rgba(37, 99, 235, 0.5);
+        }
+
+        .slider-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .slider-row input[type="range"] {
+            flex: 1;
+            accent-color: #2563eb;
+            cursor: pointer;
+        }
+
+        #powerValueLabel {
+            font-size: 0.88rem;
+            font-weight: 800;
+            color: var(--accent-yellow);
+            min-width: 42px;
+            text-align: right;
+            font-family: monospace;
+        }
+
+        /* Panel Sterowania Ruchem (WASD + Turbo) */
+        .driving-card {
+            width: 100%;
+            max-width: 650px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            padding: 18px 16px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        #controls {
+            display: grid;
+            grid-template-areas:
+                ". w ."
+                "a s d";
+            gap: 10px;
+        }
+
+        #controls button:nth-child(1) { grid-area: w; }
+        #controls button:nth-child(2) { grid-area: a; }
+        #controls button:nth-child(3) { grid-area: s; }
+        #controls button:nth-child(4) { grid-area: d; }
+
+        #controls button {
+            width: 76px;
+            height: 76px;
+            background: var(--bg-btn);
+            color: #f1f5f9;
+            border: 2px solid var(--border-color);
+            border-radius: 16px;
+            font-size: 1.4rem;
+            font-weight: 800;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            transition: all 0.1s ease;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+        }
+
+        #controls button span {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        #controls button:hover:not(:disabled) {
+            background: var(--bg-btn-hover);
+            border-color: #475569;
+        }
+
+        #controls button.active {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+            border-color: #60a5fa;
+            color: #fff;
+            transform: scale(0.95);
+            box-shadow: 0 0 16px rgba(59, 130, 246, 0.6);
+        }
+
+        #controls button.active span { color: #dbeafe; }
+
+        #turbo {
+            width: 250px;
+            padding: 12px 20px;
+            background: var(--bg-btn);
+            color: #94a3b8;
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            font-size: 0.95rem;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+        }
+
+        #turbo.turbo-on {
+            background: linear-gradient(135deg, #ef4444, #b91c1c);
+            color: #fff;
+            border-color: #f87171;
+            box-shadow: 0 0 20px var(--accent-red-glow);
+            transform: scale(1.02);
+        }
+
+        /* Stan zablokowania */
+        #controls.disabled button,
+        #turbo.disabled,
+        .tool-btn.disabled,
+        .gear-btn.disabled,
+        .trick-btn.disabled {
+            opacity: 0.35;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+
+        /* Sekcja Triki Kaskaderskie */
+        .tricks-section {
+            width: 100%;
+            max-width: 650px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            padding: 18px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+            margin-bottom: 16px;
+        }
+
+        .tricks-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .tricks-title {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .trick-count {
+            background: var(--accent-red);
+            font-size: 0.7rem;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-weight: 800;
+        }
+
+        .trick-status-box {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            gap: 10px;
+        }
+
+        #trickStatusText {
+            font-size: 0.82rem;
+            font-weight: 600;
+            color: var(--accent-yellow);
+        }
+
+        #stopTrickBtn {
+            display: none;
+            padding: 6px 14px;
+            background: #ef4444;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            font-weight: 800;
+            cursor: pointer;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+            animation: pulse 1s infinite alternate;
+        }
+
+        #stopTrickBtn.visible { display: inline-block; }
+
+        @keyframes pulse {
+            from { transform: scale(1); }
+            to { transform: scale(1.04); }
+        }
+
+        /* Siatka 10 trików */
+        .tricks-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 10px;
+        }
+
+        .trick-btn {
+            position: relative;
+            background: var(--bg-btn);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 11px 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            color: var(--text-main);
+        }
+
+        .trick-btn:hover:not(.disabled) {
+            background: var(--bg-btn-hover);
+            border-color: #475569;
+            transform: translateY(-1px);
+        }
+
+        .trick-btn.active-trick {
+            background: linear-gradient(135deg, #0284c7, #0369a1);
+            border-color: #38bdf8;
+            box-shadow: 0 0 16px rgba(56, 189, 248, 0.5);
+        }
+
+        .trick-badge {
+            background: #0f172a;
+            border: 1px solid #334155;
+            color: var(--accent-yellow);
+            font-size: 0.74rem;
+            font-weight: 800;
+            padding: 2px 6px;
+            border-radius: 6px;
+            min-width: 26px;
+            text-align: center;
+        }
+
+        .trick-icon { font-size: 1.35rem; }
+
+        .trick-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex: 1;
+        }
+
+        .trick-info strong {
+            font-size: 0.85rem;
+            color: #f1f5f9;
+        }
+
+        .trick-info span {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            line-height: 1.25;
+        }
+
+        /* Pasek Skrótów Klawiszowych */
+        .instructions {
+            width: 100%;
+            max-width: 650px;
+            background: #0c1017;
+            border: 1px solid #1e2638;
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-size: 0.76rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+        }
+
+        .instructions strong { color: #cbd5e1; }
+
+        .key-tag {
+            display: inline-block;
+            background: #1e293b;
+            color: #e2e8f0;
+            border: 1px solid #334155;
+            padding: 1px 5px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-weight: bold;
+            font-size: 0.74rem;
+            margin: 0 2px;
+        }
+
+        @media (max-width: 480px) {
+            #controls button {
+                width: 68px;
+                height: 68px;
+            }
+            .tricks-grid {
+                grid-template-columns: 1fr;
+            }
+            .pad-keybinds-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand-badge">🏁 Shell Motorsports Pro</div>
+        <h1>Web Bluetooth Controller</h1>
+        <p class="subtitle">Sterowanie Padem Xbox • Płynna Moc Silników • Światła • 10 Tricków</p>
+    </header>
+
+    <!-- Pasek Statusu i Bateria -->
+    <div class="status-bar">
+        <div class="conn-indicator">
+            <span id="connectionStatus" class="status-offline">
+                <span class="status-dot"></span>
+                <span>ROZŁĄCZONO</span>
+            </span>
+        </div>
+
+        <div id="batteryContainer" style="display: none;">
+            <div id="batteryIcon">
+                <div id="batteryFill"></div>
+                <span id="batteryDisplay">--%</span>
+            </div>
+            <div id="batteryNub"></div>
+        </div>
+
+        <button id="connect">Połącz z samochodem</button>
+    </div>
+
+    <!-- PANEL KONTROLERA PAD (XBOX / PLAYSTATION / GAMEPAD) -->
+    <div class="gamepad-card">
+        <div class="gamepad-header">
+            <div class="gamepad-title">
+                <span>🎮 Sterowanie Padem (Xbox / PC)</span>
+            </div>
+            <div id="gamepadStatus" class="pad-status-offline">
+                <span class="pad-dot"></span>
+                <span id="gamepadName">Nie wykryto (Wciśnij dowolny przycisk na padzie)</span>
+            </div>
+        </div>
+
+        <!-- Wizualna Klawiszologia Pada (Reaguje na wciśnięcia w czasie rzeczywistym) -->
+        <div class="pad-keybinds-grid">
+            <div id="pad-rt" class="pad-bind-item">
+                <span class="pad-btn-badge trigger-badge">RT</span>
+                <div class="pad-bind-desc">
+                    <strong>Prawy Spust (Gaz)</strong>
+                    <span>Płynny gaz analogowy (Przód)</span>
+                </div>
+            </div>
+
+            <div id="pad-lt" class="pad-bind-item">
+                <span class="pad-btn-badge trigger-badge">LT</span>
+                <div class="pad-bind-desc">
+                    <strong>Lewy Spust (Hamulec)</strong>
+                    <span>Hamowanie i bieg wsteczny</span>
+                </div>
+            </div>
+
+            <div id="pad-stick" class="pad-bind-item">
+                <span class="pad-btn-badge">L-Stick</span>
+                <div class="pad-bind-desc">
+                    <strong>Lewa Gałka / D-Pad</strong>
+                    <span>Płynny skręt w lewo / prawo</span>
+                </div>
+            </div>
+
+            <div id="pad-rb" class="pad-bind-item">
+                <span class="pad-btn-badge bumper-badge">RB</span>
+                <div class="pad-bind-desc">
+                    <strong>Prawy Bumper</strong>
+                    <span>Bieg w górę (Gears 1 ➔ 4)</span>
+                </div>
+            </div>
+
+            <div id="pad-lb" class="pad-bind-item">
+                <span class="pad-btn-badge bumper-badge">LB</span>
+                <div class="pad-bind-desc">
+                    <strong>Lewy Bumper</strong>
+                    <span>Bieg w dół (Gears 4 ➔ 1)</span>
+                </div>
+            </div>
+
+            <div id="pad-y" class="pad-bind-item">
+                <span class="pad-btn-badge action-badge">Y</span>
+                <div class="pad-bind-desc">
+                    <strong>Przycisk Y / RS</strong>
+                    <span>TURBO 100% mocy</span>
+                </div>
+            </div>
+
+            <div id="pad-x" class="pad-bind-item">
+                <span class="pad-btn-badge action-badge">X</span>
+                <div class="pad-bind-desc">
+                    <strong>Przycisk X</strong>
+                    <span>Światła WŁ / WYŁ</span>
+                </div>
+            </div>
+
+            <div id="pad-a" class="pad-bind-item">
+                <span class="pad-btn-badge action-badge">A</span>
+                <div class="pad-bind-desc">
+                    <strong>Przycisk A</strong>
+                    <span>Stroboskop / Awaryjne</span>
+                </div>
+            </div>
+
+            <div id="pad-b" class="pad-bind-item">
+                <span class="pad-btn-badge action-badge">B</span>
+                <div class="pad-bind-desc">
+                    <strong>Przycisk B</strong>
+                    <span>Klakson / Błysk świateł</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pasek Kontroli Świateł i Klaksonu -->
+    <div class="controls-toolbar">
+        <button id="lightsBtn" class="tool-btn disabled">💡 Światła: WŁ [L / X]</button>
+        <button id="strobeBtn" class="tool-btn disabled">🚨 Stroboskop [H / A]</button>
+        <button id="hornBtn" class="tool-btn disabled">📢 Klakson [K / B]</button>
+    </div>
+
+    <!-- Panel Kontroli Mocy Silników (PWM Speed & Gears) -->
+    <div class="power-card">
+        <div class="power-header">
+            <div class="power-title">
+                <span>⚡ Moc Silników (Speed PWM)</span>
+            </div>
+            <span id="gearBadge">BIEG 3 (85%)</span>
+        </div>
+
+        <div class="power-gauge">
+            <div id="powerGaugeBar"></div>
+        </div>
+
+        <div class="gears-container">
+            <button class="gear-btn disabled" data-gear="1">🐢 1: Eco (40%)</button>
+            <button class="gear-btn disabled" data-gear="2">🚗 2: Normal (65%)</button>
+            <button class="gear-btn disabled active-gear" data-gear="3">🏎️ 3: Sport (85%)</button>
+            <button class="gear-btn disabled" data-gear="4">🚀 4: Max (100%)</button>
+        </div>
+
+        <div class="slider-row">
+            <input id="powerSlider" type="range" min="20" max="100" step="5" value="85">
+            <span id="powerValueLabel">85%</span>
+        </div>
+    </div>
+
+    <!-- Panel Sterowania Ruchem (WASD + Turbo) -->
+    <div class="driving-card">
+        <div id="controls" class="disabled">
+            <button data-key="forward">W<span>▲</span></button>
+            <button data-key="left">A<span>◀</span></button>
+            <button data-key="backward">S<span>▼</span></button>
+            <button data-key="right">D<span>▶</span></button>
+        </div>
+
+        <button id="turbo" class="disabled">TURBO OFF [T / Y]</button>
+    </div>
+
+    <!-- Panel 10 Trików Kaskaderskich -->
+    <div class="tricks-section">
+        <div class="tricks-header">
+            <div class="tricks-title">
+                <span>🏎️ 10 Trików Kaskaderskich (100% Mocy + Światła + Rumble)</span>
+                <span class="trick-count">10 TRIKÓW</span>
+            </div>
+        </div>
+
+        <div class="trick-status-box">
+            <span id="trickStatusText">Połącz samochód, aby odblokować triki.</span>
+            <button id="stopTrickBtn">⏹️ PRZERWIJ (Spacja / Menu Pada)</button>
+        </div>
+
+        <div id="tricksGrid" class="tricks-grid">
+            <!-- Dynamicznie generowane w main.js -->
+        </div>
+    </div>
+
+    <!-- Klawisze i Instrukcja -->
+    <div class="instructions">
+        <strong>🎮 Skróty Klawiszowe i Pad:</strong>
+        <span class="key-tag">RT</span> / <span class="key-tag">W</span> — gaz |
+        <span class="key-tag">LT</span> / <span class="key-tag">S</span> — hamulec/wsteczny |
+        <span class="key-tag">Gałka L</span> / <span class="key-tag">A</span> <span class="key-tag">D</span> — skręt |
+        <span class="key-tag">RB</span> / <span class="key-tag">LB</span> (<span class="key-tag">Q</span> / <span class="key-tag">E</span>) — zmiana biegu |
+        <span class="key-tag">Y</span> (<span class="key-tag">T</span>) — Turbo |
+        <span class="key-tag">X</span> (<span class="key-tag">L</span>) — światła |
+        <span class="key-tag">A</span> (<span class="key-tag">H</span>) — stroboskop |
+        <span class="key-tag">B</span> (<span class="key-tag">K</span>) — klakson |
+        <span class="key-tag">Menu</span> / <span class="key-tag">Spacja</span> — zatrzymanie.
+    </div>
+
+    <!-- Pojedynczy plik skryptu -->
+    <script src="main.js"></script>
+</body>
+</html>
